@@ -3,7 +3,9 @@ extern crate plygui_api;
 extern crate serde;
 extern crate serde_json;
 
-use self::plygui_api::*;
+use plygui_api::*;
+
+pub use plygui_api::markup;
 
 use std::collections::HashMap;
 
