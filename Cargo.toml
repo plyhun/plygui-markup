@@ -9,6 +9,5 @@ path = "src/lib.rs"
 
 [dependencies]
 plygui-api = { version = "0.0.1", path = "../plygui-api", features = ["markup"] }
-lazy_static = { version = "^1.0" }
 serde = { version = "^1.0" }
 serde_json = { version = "^1.0" }
