@@ -1,71 +1,34 @@
 extern crate plygui_api;
 
-extern crate serde;
-extern crate serde_json;
-
-use plygui_api::*;
-
+pub use plygui_api::traits::*;
+pub use plygui_api::ids::*;
+pub use plygui_api::types::*;
+pub use plygui_api::callbacks;
+pub use plygui_api::layout;
+pub use plygui_api::members;
+pub use plygui_api::utils;
 pub use plygui_api::markup;
 
-use std::sync::{Once, ONCE_INIT};
+#[cfg(all(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"), feature = "gtk3"))]
+extern crate plygui_gtk;
+#[cfg(all(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"), feature = "gtk3"))]
+pub use plygui_gtk::*;
 
-pub enum MarkupError {
-	MemberNotFound,
-	MemberAlreadyRegistered,
-}
+#[cfg(all(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"), feature = "qt5"))]
+extern crate plygui_qt;
+#[cfg(all(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"), feature = "qt5"))]
+pub use plygui_qt::*;
 
-static mut IDS: Option<markup::MarkupIds> = None;
-static mut REGISTRY: Option<markup::MarkupRegistry> = None;
-static INIT: Once = ONCE_INIT;
+#[cfg(all(target_os = "macos", feature = "cocoa"))]
+extern crate plygui_cocoa;
+#[cfg(all(target_os = "macos", feature = "cocoa"))]
+pub use plygui_cocoa::*;
 
-fn init_registry() {
-	unsafe { 
-		REGISTRY = Some(Default::default()); 
-		IDS = Some(Default::default());
-	}
-}
+#[cfg(all(target_os = "windows", feature = "win32"))]
+extern crate plygui_win32;
+#[cfg(all(target_os = "windows", feature = "win32"))]
+pub use plygui_win32::*;
 
-pub fn registry<'a>() -> &'a markup::MarkupRegistry {
-	INIT.call_once(init_registry);
-	unsafe { REGISTRY.as_ref().unwrap() }
-}
-pub fn registry_mut<'a>() -> &'a mut markup::MarkupRegistry {
-	INIT.call_once(init_registry);
-	unsafe { REGISTRY.as_mut().unwrap() }
-}
-
-pub fn register_member(member_id: &str, member_spawner: fn() -> Box<plygui_api::traits::UiControl>) -> Result<(), MarkupError> {
-	INIT.call_once(init_registry);
-	unsafe { 
-		let registry = REGISTRY.as_mut().unwrap();
-		if registry.get(member_id).is_none() {
-			registry.insert(member_id.into(), member_spawner); 
-			Ok(())
-		} else {
-			Err(MarkupError::MemberAlreadyRegistered)
-		}
-	}
-}
-
-pub fn unregister_member(member_id: &str) -> Result<(), MarkupError> {
-	INIT.call_once(init_registry);
-	unsafe { 
-		let registry = REGISTRY.as_mut().unwrap();
-		if registry.remove(member_id).is_none() {
-			Err(MarkupError::MemberNotFound)
-		} else {
-			Ok(())
-		}
-	}
-}
-
-pub fn parse_markup(json: &str) -> Box<traits::UiControl> {
-	INIT.call_once(init_registry);
-	
-	let markup: markup::Markup = serde_json::from_str(json).unwrap();
-	
-	let registry = unsafe { REGISTRY.as_ref().unwrap() };
-	let mut control = registry.get(&markup.member_type).unwrap()();
-	control.fill_from_markup(&markup, registry, unsafe { IDS.as_mut().unwrap() } );
-	control
+pub fn register_markup_members(registry: &mut plygui_api::markup::MarkupRegistry) {
+    register_members(registry);
 }
