@@ -8,22 +8,21 @@ name = "plygui_markup"
 path = "src/lib.rs"
 
 [dependencies]
-plygui-api = { version = "0.0.1", path = "../plygui-api" }
+plygui-api = { version = "0.0.1", path = "../plygui/src/api" }
 
-[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
 plygui-qt = { version = "0.0.1", path = "../plygui-qt", optional = true }
-plygui-gtk = { version = "0.0.1", path = "../plygui-gtk", optional = true }
+plygui-gtk = { version = "0.0.1", path = "../plygui/src/backend/gtk3", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-plygui-win32 = { version = "0.0.1", path = "../plygui-win32", optional = true }
+plygui-win32 = { version = "0.0.1", path = "../plygui/src/backend/win32", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-plygui-cocoa = { version = "0.0.1", path = "../plygui-cocoa", optional = true }
+plygui-cocoa = { version = "0.0.1", path = "../plygui/src/backend/cocoa", optional = true }
 
 [features]
 qt5 = ["plygui-qt/markup"]
 gtk3 = ["plygui-gtk/markup"]
 win32 = ["plygui-win32/markup"]
 cocoa = ["plygui-cocoa/markup"]
-native = ["win32", "cocoa", "gtk3"]
-default = ["native"]
+#native = ["win32", "cocoa", "gtk3"]
+default = []
