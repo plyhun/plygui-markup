@@ -11,28 +11,28 @@ pub use plygui_api::markup;
 #[cfg(feature = "gtk3")]
 extern crate plygui_gtk;
 #[cfg(feature = "gtk3")]
-pub use plygui_gtk::prelude::*;
+pub use plygui_gtk::*;
 #[cfg(feature = "gtk3")]
 pub use plygui_gtk::register_members;
 
 #[cfg(feature = "qt5")]
 extern crate plygui_qt;
 #[cfg(feature = "qt5")]
-pub use plygui_qt::prelude::*;
+pub use plygui_qt::*;
 #[cfg(feature = "qt5")]
 pub use plygui_qt::register_members;
 
 #[cfg(all(target_os = "macos", feature = "cocoa"))]
 extern crate plygui_cocoa;
 #[cfg(all(target_os = "macos", feature = "cocoa"))]
-pub use plygui_cocoa::prelude::*;
+pub use plygui_cocoa::*;
 #[cfg(all(target_os = "macos", feature = "cocoa"))]
 pub use plygui_cocoa::register_members;
 
 #[cfg(all(target_os = "windows", feature = "win32"))]
 extern crate plygui_win32;
 #[cfg(all(target_os = "windows", feature = "win32"))]
-pub use plygui_win32::prelude::*;
+pub use plygui_win32::*;
 #[cfg(all(target_os = "windows", feature = "win32"))]
 pub use plygui_win32::register_members;
 
