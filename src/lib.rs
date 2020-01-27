@@ -1,41 +1,376 @@
-extern crate plygui_api;
+#![feature(specialization)]
 
-pub use plygui_api::controls::*;
-pub use plygui_api::ids::*;
+pub use plygui_api::controls;
+pub use plygui_api::development::*;
+pub use plygui_api::ids;
 pub use plygui_api::types::*;
-pub use plygui_api::callbacks;
+pub use plygui_api::callbacks::*;
 pub use plygui_api::layout;
 pub use plygui_api::utils;
-pub use plygui_api::markup;
-
-#[cfg(feature = "gtk3")]
-extern crate plygui_gtk;
-#[cfg(feature = "gtk3")]
-pub use plygui_gtk::*;
-#[cfg(feature = "gtk3")]
-pub use plygui_gtk::register_members;
 
 #[cfg(feature = "qt5")]
-extern crate plygui_qt;
+pub use plygui_qt::imp;
 #[cfg(feature = "qt5")]
-pub use plygui_qt::*;
-#[cfg(feature = "qt5")]
-pub use plygui_qt::register_members;
+use plygui_qt::development;
+
+#[cfg(feature = "gtk3")]
+pub use plygui_gtk::imp;
+#[cfg(feature = "gtk3")]
+use plygui_gtk::development;
 
 #[cfg(all(target_os = "macos", feature = "cocoa"))]
-extern crate plygui_cocoa;
+pub use plygui_cocoa::imp;
 #[cfg(all(target_os = "macos", feature = "cocoa"))]
-pub use plygui_cocoa::*;
-#[cfg(all(target_os = "macos", feature = "cocoa"))]
-pub use plygui_cocoa::register_members;
+use plygui_cocoa::development;
 
 #[cfg(all(target_os = "windows", feature = "win32"))]
-extern crate plygui_win32;
+pub use plygui_win32::imp;
 #[cfg(all(target_os = "windows", feature = "win32"))]
-pub use plygui_win32::*;
-#[cfg(all(target_os = "windows", feature = "win32"))]
-pub use plygui_win32::register_members;
+use plygui_win32::development;
 
-pub fn register_markup_members(registry: &mut plygui_api::markup::MarkupRegistry) {
-    register_members(registry);
+#[cfg(not(any(feature = "gtk3", feature = "qt5", feature = "cocoa", feature = "win32")))]
+pub use plygui_testable::imp;
+#[cfg(not(any(feature = "gtk3", feature = "qt5", feature = "cocoa", feature = "win32")))]
+use plygui_testable::development;
+
+use std::collections::HashMap;
+use std::fmt;
+use std::hash::Hash;
+use std::marker::PhantomData;
+
+use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
+use typemap::{Key, TypeMap};
+
+pub trait AbstractMarkup {}
+
+pub trait Markupable : controls::Control
+{
+    fn on_markup(& mut self, markup : &Markup, registry : & mut MarkupRegistry) ; 
+} 
+pub trait MarkupableInner : ControlInner
+{
+    fn on_markup(& mut self, member : & mut MemberBase, control : & mut ControlBase, markup : &Markup, registry : & mut MarkupRegistry) ; 
+}
+impl<T: ControlInner + MarkupableInner> Markupable for AMember<AControl<T>> {
+    fn on_markup(& mut self, markup : &Markup, registry : & mut MarkupRegistry) {
+        self.inner.inner.on_markup(&mut self.base, &mut self.inner.base, markup, registry)
+    }
+}
+impl<II: MarkupableInner, T: HasInner<I = II> + AbstractMarkup + Abstract + 'static> MarkupableInner for T {
+    fn on_markup(&mut self, member : &mut MemberBase, control : &mut ControlBase, markup : &Markup, registry : &mut MarkupRegistry) {
+        self.inner_mut().on_markup(member, control, markup, registry)
+    }
+}
+
+pub type MemberType = String;
+pub type MemberSpawner = fn() -> Box<dyn controls::Control>;
+
+struct CallbackKeyWrapper<T>(PhantomData<T>);
+struct CallbackWrapper<T: Callback>(T);
+
+impl<T: 'static> Key for CallbackKeyWrapper<T>
+where
+    T: Callback,
+{
+    type Value = CallbackWrapper<T>;
+}
+
+pub const ID: &str = "id";
+pub const TYPE: &str = "type";
+pub const CHILD: &str = "child";
+pub const CHILDREN: &str = "children";
+
+const FIELDS: &[&str] = &[ID, TYPE];
+
+pub const MEMBER_TYPE_SPLITTED: &str = "Splitted";
+pub const MEMBER_TYPE_FRAME: &str = "Frame";
+pub const MEMBER_TYPE_LINEAR_LAYOUT: &str = "LinearLayout";
+pub const MEMBER_TYPE_BUTTON: &str = "Button";
+pub const MEMBER_TYPE_TEXT: &str = "Text";
+pub const MEMBER_TYPE_IMAGE: &str = "Image";
+pub const MEMBER_TYPE_PROGRESS_BAR: &str = "ProgressBar";
+
+pub struct MarkupRegistry {
+    spawners: HashMap<MemberType, MemberSpawner>,
+    ids: HashMap<String, ids::Id>,
+    bindings: HashMap<String, TypeMap>,
+}
+
+impl MarkupRegistry {
+    pub fn new() -> MarkupRegistry {
+        MarkupRegistry {
+            spawners: HashMap::new(),
+            ids: HashMap::new(),
+            bindings: HashMap::new(),
+        }
+    }
+    pub fn register_member<S: AsRef<str> + Eq + Hash>(&mut self, member_type: S, member_spawner: MemberSpawner) -> Result<(), MarkupError> {
+        if self.spawners.get(member_type.as_ref()).is_none() {
+            self.spawners.insert(member_type.as_ref().into(), member_spawner);
+            Ok(())
+        } else {
+            Err(MarkupError::MemberAlreadyRegistered)
+        }
+    }
+    pub fn unregister_member(&mut self, member_type: &MemberType) -> Result<(), MarkupError> {
+        if self.spawners.remove(member_type).is_none() {
+            Err(MarkupError::MemberNotFound)
+        } else {
+            Ok(())
+        }
+    }
+    pub fn member(&self, member_type: &MemberType) -> Result<&MemberSpawner, MarkupError> {
+        self.spawners.get(member_type).ok_or(MarkupError::MemberNotFound)
+    }
+
+    pub fn push_callback<CallbackFn>(&mut self, name: &str, callback: CallbackFn) -> Result<(), MarkupError>
+    where
+        CallbackFn: Callback + 'static,
+    {
+        if self.bindings.get(name).is_none() {
+            let mut tm = TypeMap::new();
+            tm.insert::<CallbackKeyWrapper<CallbackFn>>(CallbackWrapper(callback));
+            self.bindings.insert(name.into(), tm);
+            Ok(())
+        } else {
+            Err(MarkupError::CallbackAlreadyBinded)
+        }
+    }
+    pub fn peek_callback<CallbackFn>(&self, name: &str) -> Result<&CallbackFn, MarkupError>
+    where
+        CallbackFn: Callback + 'static,
+    {
+        let tm = self.bindings.get(name).ok_or(MarkupError::CallbackNotFound)?;
+        tm.get::<CallbackKeyWrapper<CallbackFn>>().ok_or(MarkupError::CallbackNotFound).map(|wrapper| &wrapper.0)
+    }
+    pub fn pop_callback<CallbackFn>(&mut self, name: &str) -> Result<CallbackFn, MarkupError>
+    where
+        CallbackFn: Callback + 'static,
+    {
+        let tm = self.bindings.get_mut(name).ok_or(MarkupError::CallbackNotFound)?;
+        tm.remove::<CallbackKeyWrapper<CallbackFn>>().ok_or(MarkupError::CallbackNotFound).map(|wrapper| wrapper.0)
+    }
+
+    pub fn store_id(&mut self, control_id: &str, generated_id: ids::Id) -> Result<(), MarkupError> {
+        if self.ids.get(control_id).is_none() {
+            self.ids.insert(control_id.into(), generated_id);
+            Ok(())
+        } else {
+            Err(MarkupError::IdAlreadyExists)
+        }
+    }
+    pub fn remove_id(&mut self, control_id: &str) -> Result<(), MarkupError> {
+        if self.ids.remove(control_id).is_none() {
+            Err(MarkupError::IdNotFound)
+        } else {
+            Ok(())
+        }
+    }
+    pub fn id(&self, control_id: &str) -> Result<&ids::Id, MarkupError> {
+        self.ids.get(control_id).ok_or(MarkupError::IdNotFound)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum MarkupError {
+    MemberNotFound,
+    MemberAlreadyRegistered,
+    CallbackNotFound,
+    CallbackAlreadyBinded,
+    IdNotFound,
+    IdAlreadyExists,
+}
+
+#[derive(Debug, Clone)]
+pub struct Markup {
+    pub id: Option<String>,
+    pub member_type: MemberType,
+    pub attributes: HashMap<String, MarkupNode>,
+}
+
+#[derive(Debug, Clone)]
+pub enum MarkupNode {
+    Attribute(String),
+    Child(Markup),
+    Children(Vec<Markup>),
+}
+
+impl MarkupNode {
+    pub fn as_attribute(&self) -> &str {
+        match *self {
+            MarkupNode::Attribute(ref attr) => attr.as_str(),
+            _ => panic!("MarkupNode is not an Attribute: {:?}", self),
+        }
+    }
+    pub fn as_child(&self) -> &Markup {
+        match *self {
+            MarkupNode::Child(ref markup) => markup,
+            _ => panic!("MarkupNode is not a Child Markup: {:?}", self),
+        }
+    }
+    pub fn as_children(&self) -> &[Markup] {
+        match *self {
+            MarkupNode::Children(ref children) => children.as_slice(),
+            _ => panic!("MarkupNode is not the Children Markups: {:?}", self),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Markup {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_struct("Markup", FIELDS, MarkupVisitor)
+    }
+}
+
+struct MarkupVisitor;
+
+impl<'de> Visitor<'de> for MarkupVisitor {
+    type Value = Markup;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("struct Markup")
+    }
+
+    fn visit_map<V>(self, mut map: V) -> Result<Markup, V::Error>
+    where
+        V: MapAccess<'de>,
+    {
+        let mut id = None;
+        let mut member_type = None;
+        let mut child_found = false;
+
+        let mut attributes = HashMap::new();
+
+        while let Some(key) = map.next_key()? {
+            println!("{} found", key);
+
+            match key {
+                TYPE => {
+                    if member_type.is_some() {
+                        return Err(de::Error::duplicate_field(TYPE));
+                    }
+                    member_type = Some(map.next_value()?);
+                }
+                ID => {
+                    if id.is_some() {
+                        return Err(de::Error::duplicate_field(ID));
+                    }
+                    id = Some(map.next_value()?);
+                }
+                CHILD => {
+                    if child_found {
+                        return Err(de::Error::duplicate_field("child / children"));
+                    } else {
+                        attributes.insert(key.into(), MarkupNode::Child(map.next_value::<Markup>()?));
+                        child_found = true;
+                    }
+                }
+                CHILDREN => {
+                    if child_found {
+                        return Err(de::Error::duplicate_field("child / children"));
+                    } else {
+                        attributes.insert(key.into(), MarkupNode::Children(map.next_value::<Vec<Markup>>()?));
+                        child_found = true;
+                    }
+                }
+                _ => {
+                    attributes.insert(key.into(), MarkupNode::Attribute(map.next_value::<String>()?));
+                }
+            }
+        }
+        Ok(Markup {
+            id: id,
+            member_type: member_type.ok_or_else(|| de::Error::missing_field(TYPE))?,
+            attributes: attributes,
+        })
+    }
+}
+
+pub fn parse_markup(json: &str, registry: &mut MarkupRegistry) -> Box<dyn controls::Control> {
+    let markup: Markup = serde_json::from_str(json).unwrap();
+
+    let mut control = registry.member(&markup.member_type).unwrap()();
+    
+    match markup.member_type.as_ref() {
+        MEMBER_TYPE_BUTTON => {
+            control.as_any_mut().downcast_mut::<imp::Button>().unwrap().on_markup(&markup, registry);
+        }
+    }
+    
+    control
+}
+
+impl MarkupableInner for development::Button {
+    fn on_markup(& mut self, member : & mut MemberBase, control : & mut ControlBase, markup : &Markup, registry : &mut MarkupRegistry)  {
+        fill_from_markup_base!(self, member, markup, registry, Button, [MEMBER_TYPE_BUTTON]);
+        fill_from_markup_label!(self, member, markup);
+        fill_from_markup_callbacks!(self, markup, registry, [on_click => OnClick]);
+    }
+}
+
+#[macro_export]
+macro_rules! bind_markup_callback {
+    ($reg: ident, $cb: ident) => {
+        registry.bind_callback(stringify!($cb), $cb as CallbackPtr).unwrap();
+    };
+}
+#[macro_export]
+macro_rules! fill_from_markup_base {
+	($this: expr, $mem: expr, $mrk: ident, $reg: ident, $typ:ty, [$($arg:ident),+]) => {
+		if !&[$($arg),+].contains(&$mrk.member_type.as_str()) {
+			match $mrk.id {
+				Some(ref id) => panic!("Markup does not belong to {}: {} ({})", stringify!($typ), $mrk.member_type, id),
+				None => panic!("Markup does not belong to {}: {}", stringify!($typ), $mrk.member_type),
+			}
+		}
+    	if let Some(ref id) = $mrk.id {
+    		$reg.store_id(&id, $mem.id()).unwrap();
+    	}
+	}
+}
+#[macro_export]
+macro_rules! fill_from_markup_label {
+    ($this: expr, $mem: expr, $mrk: ident) => {
+        $this.set_label($mem, $mrk.attributes.get("label").unwrap().as_attribute().into());
+    };
+}
+#[macro_export]
+macro_rules! fill_from_markup_callbacks {
+	($this: expr, $mrk: ident, $reg: ident, [$($cbname:ident => $cbtyp:ty),+]) => {
+		$(if let Some(callback) = $mrk.attributes.get(stringify!($cbname)) {
+    		let callback: $cbtyp = $reg.pop_callback(callback.as_attribute()).unwrap();
+    		$this.$cbname(Some(callback));
+    	})+
+	}
+}
+#[macro_export]
+macro_rules! fill_from_markup_children {
+    ($this: expr, $mem: expr, $mrk: ident, $reg: ident) => {
+        for child_markup in $mrk.attributes.get(::plygui_api::markup::CHILDREN).unwrap_or(&::plygui_api::markup::MarkupNode::Children(vec![])).as_children() {
+            use plygui_api::development::MultiContainerInner;
+
+            let mut child = $reg.member(&child_markup.member_type).unwrap()();
+            child.fill_from_markup(child_markup, $reg);
+            $this.push_child($mem, child);
+        }
+    };
+}
+#[macro_export]
+macro_rules! fill_from_markup_child {
+    ($this: expr, $mem: expr, $mrk: ident, $reg: ident) => {
+        if let Some(child_markup) = $mrk.attributes.get(::plygui_api::markup::CHILD).map(|m| m.as_child()) {
+            use plygui_api::development::SingleContainerInner;
+
+            let mut child = $reg.member(&child_markup.member_type).unwrap()();
+            child.fill_from_markup(child_markup, $reg);
+            $this.set_child($mem, Some(child));
+        }
+    };
+}
+
+pub fn register_markup_members(registry: &mut MarkupRegistry) {
+    registry.register_member(MEMBER_TYPE_BUTTON, imp::Button::spawn);
 }

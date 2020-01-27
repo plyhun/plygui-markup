@@ -2,14 +2,19 @@
 name = "plygui-markup"
 version = "0.0.1"
 authors = ["Serhii Plyhun <snuk188@gmail.com>"]
+edition = "2018"
 
 [lib]
 name = "plygui_markup"
 path = "src/lib.rs"
 
 [dependencies]
+serde = "^1.0"
+serde_json = "^1.0"
+typemap = "^0.3"
 plygui-api = { version = "0.0.1", path = "../plygui/api" }
 
+plygui-testable = { version = "0.0.1", path = "../plygui/testable", optional = true }
 plygui-qt = { version = "0.0.1", path = "../plygui-qt", optional = true }
 plygui-gtk = { version = "0.0.1", path = "../plygui-gtk", optional = true }
 
@@ -19,10 +24,12 @@ plygui-win32 = { version = "0.0.1", path = "../plygui-win32", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 plygui-cocoa = { version = "0.0.1", path = "../plygui-cocoa", optional = true }
 
+
+
 [features]
-qt5 = ["plygui-qt/markup"]
-gtk3 = ["plygui-gtk/markup"]
-win32 = ["plygui-win32/markup"]
-cocoa = ["plygui-cocoa/markup"]
-#native = ["win32", "cocoa", "gtk3"]
-default = []
+qt5 = ["plygui-qt"]
+gtk3 = ["plygui-gtk"]
+win32 = ["plygui-win32"]
+cocoa = ["plygui-cocoa"]
+testable = ["plygui-testable"]
+default = ["testable"]
