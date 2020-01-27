@@ -9,7 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 plygui-api = { version = "0.0.1", path = "../plygui/api" }
-
+plygui-testable = { version = "0.0.1", path = "../plygui/testable", optional = true }
 plygui-qt = { version = "0.0.1", path = "../plygui-qt", optional = true }
 plygui-gtk = { version = "0.0.1", path = "../plygui-gtk", optional = true }
 
@@ -24,5 +24,5 @@ qt5 = ["plygui-qt/markup"]
 gtk3 = ["plygui-gtk/markup"]
 win32 = ["plygui-win32/markup"]
 cocoa = ["plygui-cocoa/markup"]
-#native = ["win32", "cocoa", "gtk3"]
-default = []
+testable = ["plygui-testable/markup"]
+default = ["testable"]
